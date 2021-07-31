@@ -209,8 +209,6 @@ if __name__ == "__main__":
         results_this_uuid["relation_name"] = data["relation_name"]
         RESULTS[uuid] = results_this_uuid
         NEURONS[uuid] = neurons
-        if i > 200:
-            break
 
     # save results + neurons to json file
     with open(f"{args.model_name}_pararel_neurons_{args.local_rank}.json", "w") as f:
