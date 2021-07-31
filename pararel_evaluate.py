@@ -103,7 +103,7 @@ if __name__ == "__main__":
 
     # go through each item in the PARAREL dataset, get the refined neurons, save them, and evaluate the results when suppressing the
     # refined neurons vs. unrelated neurons.
-    for idx in tqdm(INDICES, position=args.local_rank):
+    for i, idx in enumerate(tqdm(INDICES, position=args.local_rank)):
         uuid = KEYS[idx]
         neurons, data = get_neurons(uuid)  # get refined neurons
         unrelated_uuid = get_unrelated_fact(
@@ -115,52 +115,93 @@ if __name__ == "__main__":
 
         # initialize a results dict
         results_this_uuid = {
-            "related": {
-                "prob_diffs": [],
-                "correct_before": [],
-                "correct_after": [],
-                "n_prompts": len(data["sentences"]),
-            },
-            "unrelated": {
-                "prob_diffs": [],
-                "correct_before": [],
-                "correct_after": [],
-                "n_prompts": len(unrelated_data["sentences"]),
-            },
+            "suppression": {
+                "related": {
+                    "pct_change": [],
+                    "correct_before": [],
+                    "correct_after": [],
+                    "n_prompts": len(data["sentences"]),
+                },
+                "unrelated": {
+                    "pct_change": [],
+                    "correct_before": [],
+                    "correct_after": [],
+                    "n_prompts": len(unrelated_data["sentences"]),
+                }},
+            "enhancement": {
+                "related": {
+                    "pct_change": [],
+                    "correct_before": [],
+                    "correct_after": [],
+                    "n_prompts": len(data["sentences"]),
+                },
+                "unrelated": {
+                    "pct_change": [],
+                    "correct_before": [],
+                    "correct_after": [],
+                    "n_prompts": len(unrelated_data["sentences"]),
+                }},
         }
 
         for PROMPT in data["sentences"]:
             gt = data["obj_label"].lower()
             # really should be using a different for the suppression, but the authors didn't make their bing dataset available
-            results, _ = kn.suppress_knowledge(PROMPT, gt, neurons, quiet=True)
-            # get the difference in probability of the ground truth string being produced before and after suppressing knowledge
-            prob_diff = results["after"]["gt_prob"] - results["before"]["gt_prob"]
-            results_this_uuid["related"]["prob_diffs"].append(prob_diff)
+            suppression_results, _ = kn.suppress_knowledge(PROMPT, gt, neurons, quiet=True)
+            enhancement_results, _ = kn.enhance_knowledge(PROMPT, gt, neurons, quiet=True)
+
+            # get the pct change in probability of the ground truth string being produced before and after suppressing knowledge
+            suppression_prob_diff = (suppression_results["after"]["gt_prob"] - suppression_results["before"]["gt_prob"]) - suppression_results["before"]["gt_prob"]
+            results_this_uuid["suppression"]["related"]["pct_change"].append(suppression_prob_diff)
+            enhancement_prob_diff = (enhancement_results["after"]["gt_prob"] - enhancement_results["before"]["gt_prob"]) - enhancement_results["before"]["gt_prob"]
+            results_this_uuid["enhancement"]["related"]["pct_change"].append(enhancement_prob_diff)
+
             # check whether the answer was correct before/after suppression
-            results_this_uuid["related"]["correct_before"].append(
-                results["before"]["argmax_completion"] == gt
+            results_this_uuid["suppression"]["related"]["correct_before"].append(
+                suppression_results["before"]["argmax_completion"] == gt
             )
-            results_this_uuid["related"]["correct_after"].append(
-                results["after"]["argmax_completion"] == gt
+            results_this_uuid["suppression"]["related"]["correct_after"].append(
+                suppression_results["after"]["argmax_completion"] == gt
             )
+
+            results_this_uuid["enhancement"]["related"]["correct_before"].append(
+                enhancement_results["before"]["argmax_completion"] == gt
+            )
+            results_this_uuid["enhancement"]["related"]["correct_after"].append(
+                enhancement_results["after"]["argmax_completion"] == gt
+            )
+
 
         for PROMPT in unrelated_data["sentences"]:
+            # do the same but with unrelated facts
+
             gt = unrelated_data["obj_label"].lower()
 
-            unrelated_fact_results, _ = kn.suppress_knowledge(
+            unrelated_suppression_results, _ = kn.suppress_knowledge(
+                PROMPT, gt, neurons, quiet=True
+            )
+            unrelated_enhancement_results, _ = kn.suppress_knowledge(
                 PROMPT, gt, neurons, quiet=True
             )
 
-            prob_diff = (
-                unrelated_fact_results["after"]["gt_prob"]
-                - unrelated_fact_results["before"]["gt_prob"]
+            # get the pct change in probability of the ground truth string being produced before and after suppressing knowledge
+            suppression_prob_diff = (unrelated_suppression_results["after"]["gt_prob"] - unrelated_suppression_results["before"]["gt_prob"]) - unrelated_suppression_results["before"]["gt_prob"]
+            results_this_uuid["suppression"]["unrelated"]["pct_change"].append(suppression_prob_diff)
+            enhancement_prob_diff = (unrelated_enhancement_results["after"]["gt_prob"] - unrelated_enhancement_results["before"]["gt_prob"]) - unrelated_enhancement_results["before"]["gt_prob"]
+            results_this_uuid["enhancement"]["unrelated"]["pct_change"].append(enhancement_prob_diff)
+
+            # check whether the answer was correct before/after suppression
+            results_this_uuid["suppression"]["unrelated"]["correct_before"].append(
+                unrelated_suppression_results["before"]["argmax_completion"] == gt
             )
-            results_this_uuid["unrelated"]["prob_diffs"].append(prob_diff)
-            results_this_uuid["unrelated"]["correct_before"].append(
-                unrelated_fact_results["before"]["argmax_completion"] == gt
+            results_this_uuid["suppression"]["unrelated"]["correct_after"].append(
+                unrelated_suppression_results["after"]["argmax_completion"] == gt
             )
-            results_this_uuid["unrelated"]["correct_after"].append(
-                unrelated_fact_results["after"]["argmax_completion"] == gt
+
+            results_this_uuid["enhancement"]["unrelated"]["correct_before"].append(
+                unrelated_enhancement_results["before"]["argmax_completion"] == gt
+            )
+            results_this_uuid["enhancement"]["unrelated"]["correct_after"].append(
+                unrelated_enhancement_results["after"]["argmax_completion"] == gt
             )
 
         results_this_uuid["n_refined_neurons"] = len(neurons)
@@ -168,6 +209,8 @@ if __name__ == "__main__":
         results_this_uuid["relation_name"] = data["relation_name"]
         RESULTS[uuid] = results_this_uuid
         NEURONS[uuid] = neurons
+        if i > 200:
+            break
 
     # save results + neurons to json file
     with open(f"{args.model_name}_pararel_neurons_{args.local_rank}.json", "w") as f:
