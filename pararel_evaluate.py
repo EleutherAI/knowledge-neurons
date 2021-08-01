@@ -30,7 +30,7 @@ if __name__ == "__main__":
         default="bert-base-uncased",
         help=f"name of the LM to use - choose from {ALL_MODELS}",
     )
-    parser.add_argument("--results_dir", type=str, default='./', help='directory in which to save results')
+    parser.add_argument("--results_dir", type=str, default='bert_base_uncased_neurons', help='directory in which to save results')
     parser.add_argument("--batch_size", type=int, default=20)
     parser.add_argument(
         "--steps",

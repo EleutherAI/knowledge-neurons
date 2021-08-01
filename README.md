@@ -1,8 +1,8 @@
 # knowledge-neurons
 
-An open source repository replicating the 2021 paper *Knowledge Neurons in Pretrained Transformers* by Dai et al., and extending the technique to autoregressive models, as well as bert models.
+An open source repository replicating the 2021 paper *[Knowledge Neurons in Pretrained Transformers](https://arxiv.org/abs/2104.08696)* by Dai et al., and extending the technique to autoregressive models, as well as MLMs.
 
-Huggingface Transformers library is used as the backend, so any model you want to probe must be implemented there. 
+The Huggingface Transformers library is used as the backend, so any model you want to probe must be implemented there. 
 
 Currently integrated models:
 ```python
@@ -15,7 +15,7 @@ GPT_NEO_MODELS = [
 ]
 ```
 
-The technique from Dai et al. has been used to locate knowledge neurons in `bert-base-uncased` for all the head/relation/tail entities in the PARAREL dataset. Both the neurons, and more detailed results of the experiment are published at `bert_neurons/*.json` and can be replicated by running `pararel_evaluate.py`. More details in the `Evaluations on the PARAREL dataset` section. 
+The technique from Dai et al. has been used to locate knowledge neurons in `bert-base-uncased` for all the head/relation/tail entities in the PARAREL dataset. Both the neurons, and more detailed results of the experiment are published at `bert_base_uncased_neurons/*.json` and can be replicated by running `pararel_evaluate.py`. More details in the `Evaluations on the PARAREL dataset` section. 
 
 # Setup
 
@@ -26,10 +26,10 @@ git clone knowledge-neurons
 cd knowledge-neurons
 ```
 
-Or the repo can be installed as a pip repository:
+Or install as a pip package:
 
 ```
-pip install knowledge neurons
+pip install knowledge-neurons
 ```
 
 # Usage & Examples
@@ -132,8 +132,7 @@ python plot_pararel_results.py
 ```
 
 # TODO:
-- [ ] Make pip installable
-- [ ] Finish plotting script
+- [ ] Better documentation
 - [ ] Publish PARAREL results for bert-base-uncased
 - [ ] Publish PARAREL results for bert-base-multilingual-uncased
 - [ ] Publish PARAREL results for bert-large-uncased
