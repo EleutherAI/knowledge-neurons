@@ -79,14 +79,14 @@ def plot_data(pd_df, experiment_type, out_path='test.png'):
         ci="sd", palette="dark", alpha=.6, height=6, aspect=4
     )
     g.despine(left=True)
-    g.set_axis_labels("relation name", "Correct probability change")
+    g.set_axis_labels("relation name", "Correct probability percentage change")
     g.legend.set_title(title)
     g.savefig(out_path)
 
 if __name__ == "__main__":
     # parse arguments
     parser = argparse.ArgumentParser('Arguments for pararel result plotting')
-    parser.add_argument('--results_dir', default='./', type=str, help='directory in which the results from pararel_evaluate.py are saved.')
+    parser.add_argument('--results_dir', default='bert_base_uncased_neurons/', type=str, help='directory in which the results from pararel_evaluate.py are saved.')
     args = parser.parse_args()
     results_dir = Path(args.results_dir)
 
@@ -99,8 +99,8 @@ if __name__ == "__main__":
     
     # plot results of suppression experiment
     suppression_data = format_data(results, key='suppression')
-    plot_data(suppression_data, "suppression", out_path="suppress.png")
+    plot_data(suppression_data, "suppression", out_path="images/suppress.png")
 
     # plot results of enhancement experiment
     enhancement_data = format_data(results, key='enhancement')
-    plot_data(enhancement_data, "enhancement", out_path="enhance.png")
+    plot_data(enhancement_data, "enhancement", out_path="images/enhance.png")

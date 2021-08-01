@@ -15,7 +15,7 @@ GPT_NEO_MODELS = [
 ]
 ```
 
-The technique from Dai et al. has been used to locate knowledge neurons in `bert-base-uncased` for all the head/relation/tail entities in the PARAREL dataset. Both the neurons, and more detailed results of the experiment are published at `bert_base_uncased_neurons/*.json` and can be replicated by running `pararel_evaluate.py`. More details in the `Evaluations on the PARAREL dataset` section. 
+The technique from Dai et al. has been used to locate knowledge neurons in the huggingface bert-base-uncased model for all the head/relation/tail entities in the PARAREL dataset. Both the neurons, and more detailed results of the experiment are published at `bert_base_uncased_neurons/*.json` and can be replicated by running `pararel_evaluate.py`. More details in the `Evaluations on the PARAREL dataset` section. 
 
 # Setup
 
@@ -121,19 +121,29 @@ In GPT models, due to the subword tokenization, the integrated gradients are tak
 for bert models, the ground truth is currently expected to be a single token. Multi-token ground truths are on the todo list.
 
 # Evaluations on the PARAREL dataset
+To ensure that the repo works correctly, figures 3 and 4 from the knowledge neurons paper are reproduced below. In general the results appear similar, except suppressing unrelated facts appears to have a little more of an affect in this repo than in the paper's original results.* 
 
-TODO: plotting script isn't quite finished, this won't work yet
+Below are Dai et al's, and our result, respectively, for suppressing the activations of the refined knowledge neurons in pararel:
+![knowledge neuron suppression / dai et al.](images/suppress_original.png)
+![knowledge neuron suppression / ours](images/suppress.png)
+
+And Dai et al's, and our result, respectively, for enhancing the activations of the knowledge neurons:
+![knowledge neuron enhancement / dai et al.](images/enhance_original.png)
+![knowledge neuron enhancement / ours](images/enhance.png)
+
 To find the knowledge neurons in bert-base-uncased for the PARAREL dataset, and replicate figures 3. and 4. from the paper, you can run
 ```bash
-# find knowledge neurons + test suppression / enhancement (this will take a day or so on a decent gpu)
+# find knowledge neurons + test suppression / enhancement (this will take a day or so on a decent gpu) 
+# you can skip this step since the results are provided in `bert_base_uncased_neurons`
 python -m torch.distributed.launch --nproc_per_node=NUM_GPUS_YOU_HAVE pararel_evaluate.py
-# plot results
+# plot results 
 python plot_pararel_results.py
 ```
 
+*It's unclear where the difference comes from, but my suspicion is they made sure to only select facts with different relations, whereas in the plots below, only a different pararel UUID was selected. In retrospect, this could actually express the same fact, so I'll rerun these experiments soon.
+
 # TODO:
 - [ ] Better documentation
-- [ ] Publish PARAREL results for bert-base-uncased
 - [ ] Publish PARAREL results for bert-base-multilingual-uncased
 - [ ] Publish PARAREL results for bert-large-uncased
 - [ ] Publish PARAREL results for bert-large-multilingual-uncased
