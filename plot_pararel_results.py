@@ -1,12 +1,13 @@
+# plot Figure 3 + 4 from the paper -
+# the decreasing ratio of the probability of the correct answer after suppressing knowledge neurons
+
 from glob import glob
 import json
 import seaborn as sns
 import pandas as pd 
+from pathlib import Path
+import argparse 
 
-
-
-# plot Figure 3 + 4 from the paper -
-# the decreasing ratio of the probability of the correct answer after suppressing knowledge neurons
 
 def format_data(results_data, key='suppression'):
     formatted = {}
@@ -53,18 +54,24 @@ def format_data(results_data, key='suppression'):
 
     pandas_format = {'relation_name': [], 'related': [], 'pct_change': []}
     for relation_name, data in formatted.items():
+        verb = "Suppressing" if key == "suppression" else "Enhancing"
         pandas_format['relation_name'].append(relation_name)
         pandas_format['pct_change'].append(data['related'])
-        pandas_format['related'].append("Suppressing knowledge neurons for related facts")
+        pandas_format['related'].append(f"{verb} knowledge neurons for related facts")
 
         pandas_format['relation_name'].append(relation_name)
         pandas_format['pct_change'].append(data['unrelated'])
-        pandas_format['related'].append("Suppressing knowledge neurons for unrelated facts")
+        pandas_format['related'].append(f"{verb} knowledge neurons for unrelated facts")
     return pd.DataFrame(pandas_format).dropna()
 
-def plot_data(pd_df, title, out_path='test.png'):
+def plot_data(pd_df, experiment_type, out_path='test.png'):
     sns.set_theme(style="whitegrid")
-
+    if experiment_type == "suppression":
+        title = "Suppressing knowledge neurons"
+    elif experiment_type == "enhancement":
+        title = "Enhancing knowledge neurons"
+    else:
+        raise ValueError
     # Draw a nested barplot by species and sex
     g = sns.catplot(
         data=pd_df, kind="bar",
@@ -77,17 +84,23 @@ def plot_data(pd_df, title, out_path='test.png'):
     g.savefig(out_path)
 
 if __name__ == "__main__":
-    result_paths = glob("bert-base-uncased_pararel_results_*.json")
-    results = {}
+    # parse arguments
+    parser = argparse.ArgumentParser('Arguments for pararel result plotting')
+    parser.add_argument('--results_dir', default='./', type=str, help='directory in which the results from pararel_evaluate.py are saved.')
+    args = parser.parse_args()
+    results_dir = Path(args.results_dir)
 
+    # load results
+    result_paths = results_dir.glob('*results_*.json')
+    results = {}
     for p in result_paths:
         with open(p) as f:
             results.update(json.load(f))
     
+    # plot results of suppression experiment
     suppression_data = format_data(results, key='suppression')
+    plot_data(suppression_data, "suppression", out_path="suppress.png")
 
-    plot_data(suppression_data, "Suppressing knowledge neurons", "suppress.png")
-
+    # plot results of enhancement experiment
     enhancement_data = format_data(results, key='enhancement')
-
-    plot_data(enhancement_data, "Enhancing knowledge neurons", "enhance.png")
+    plot_data(enhancement_data, "enhancement", out_path="enhance.png")

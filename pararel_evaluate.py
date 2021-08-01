@@ -13,17 +13,7 @@ from tqdm import tqdm
 import json
 import argparse
 import torch
-
-
-def get_unrelated_fact(PARAREL, uuid):
-    pararel_keys = list(PARAREL.keys())
-    n_keys = len(pararel_keys)
-    while True:
-        random_uuid = pararel_keys[random.randint(0, n_keys - 1)]
-        if random_uuid == uuid:
-            continue
-        return random_uuid
-
+from pathlib import Path 
 
 if __name__ == "__main__":
     # parse arguments
@@ -39,6 +29,7 @@ if __name__ == "__main__":
         default="bert-base-uncased",
         help=f"name of the LM to use - choose from {ALL_MODELS}",
     )
+    parser.add_argument("--results_dir", type=str, default='./', help='directory in which to save results')
     parser.add_argument("--batch_size", type=int, default=20)
     parser.add_argument(
         "--steps",
@@ -59,6 +50,7 @@ if __name__ == "__main__":
         help="the threshold for the sharing percentage - we retain neurons that are shared by p% of prompts (p here is a decimal fraction, i.e between 0 and 1)",
     )
     args = parser.parse_args()
+    RESULTS_DIR = Path(args.results_dir)
     random.seed(42)
 
     # load dataset
@@ -101,13 +93,22 @@ if __name__ == "__main__":
         )
         return neurons, PARAREL[_uuid]
 
+
+    def get_unrelated_fact(KEYS, uuid):
+        n_keys = len(KEYS)
+        while True:
+            random_uuid = KEYS[random.randint(0, n_keys - 1)]
+            if random_uuid == uuid:
+                continue
+            return random_uuid
+        
     # go through each item in the PARAREL dataset, get the refined neurons, save them, and evaluate the results when suppressing the
     # refined neurons vs. unrelated neurons.
     for i, idx in enumerate(tqdm(INDICES, position=args.local_rank)):
         uuid = KEYS[idx]
         neurons, data = get_neurons(uuid)  # get refined neurons
         unrelated_uuid = get_unrelated_fact(
-            PARAREL, uuid
+            KEYS, uuid
         )  # get a uuid for an unrelated fact / relation
         unrelated_neurons, unrelated_data = get_neurons(
             unrelated_uuid
@@ -150,9 +151,10 @@ if __name__ == "__main__":
             enhancement_results, _ = kn.enhance_knowledge(PROMPT, gt, neurons, quiet=True)
 
             # get the pct change in probability of the ground truth string being produced before and after suppressing knowledge
-            suppression_prob_diff = (suppression_results["after"]["gt_prob"] - suppression_results["before"]["gt_prob"]) - suppression_results["before"]["gt_prob"]
+            suppression_prob_diff = (suppression_results["after"]["gt_prob"] - suppression_results["before"]["gt_prob"]) / suppression_results["before"]["gt_prob"]
             results_this_uuid["suppression"]["related"]["pct_change"].append(suppression_prob_diff)
-            enhancement_prob_diff = (enhancement_results["after"]["gt_prob"] - enhancement_results["before"]["gt_prob"]) - enhancement_results["before"]["gt_prob"]
+            
+            enhancement_prob_diff = (enhancement_results["after"]["gt_prob"] - enhancement_results["before"]["gt_prob"]) / enhancement_results["before"]["gt_prob"]
             results_this_uuid["enhancement"]["related"]["pct_change"].append(enhancement_prob_diff)
 
             # check whether the answer was correct before/after suppression
@@ -184,9 +186,9 @@ if __name__ == "__main__":
             )
 
             # get the pct change in probability of the ground truth string being produced before and after suppressing knowledge
-            suppression_prob_diff = (unrelated_suppression_results["after"]["gt_prob"] - unrelated_suppression_results["before"]["gt_prob"]) - unrelated_suppression_results["before"]["gt_prob"]
+            suppression_prob_diff = (unrelated_suppression_results["after"]["gt_prob"] - unrelated_suppression_results["before"]["gt_prob"]) / unrelated_suppression_results["before"]["gt_prob"]
             results_this_uuid["suppression"]["unrelated"]["pct_change"].append(suppression_prob_diff)
-            enhancement_prob_diff = (unrelated_enhancement_results["after"]["gt_prob"] - unrelated_enhancement_results["before"]["gt_prob"]) - unrelated_enhancement_results["before"]["gt_prob"]
+            enhancement_prob_diff = (unrelated_enhancement_results["after"]["gt_prob"] - unrelated_enhancement_results["before"]["gt_prob"]) / unrelated_enhancement_results["before"]["gt_prob"]
             results_this_uuid["enhancement"]["unrelated"]["pct_change"].append(enhancement_prob_diff)
 
             # check whether the answer was correct before/after suppression
@@ -211,7 +213,7 @@ if __name__ == "__main__":
         NEURONS[uuid] = neurons
 
     # save results + neurons to json file
-    with open(f"{args.model_name}_pararel_neurons_{args.local_rank}.json", "w") as f:
+    with open(RESULTS_DIR / f"{args.model_name}_pararel_neurons_{args.local_rank}.json", "w") as f:
         json.dump(NEURONS, f, indent=4)
-    with open(f"{args.model_name}_pararel_results_{args.local_rank}.json", "w") as f:
+    with open(RESULTS_DIR / f"{args.model_name}_pararel_results_{args.local_rank}.json", "w") as f:
         json.dump(RESULTS, f, indent=4)
