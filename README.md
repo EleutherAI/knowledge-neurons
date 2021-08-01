@@ -144,7 +144,7 @@ python plot_pararel_results.py
 
 
 # Citations
-```
+```bibtex
 @article{Dai2021KnowledgeNI,
   title={Knowledge Neurons in Pretrained Transformers},
   author={Damai Dai and Li Dong and Y. Hao and Zhifang Sui and Furu Wei},
@@ -152,4 +152,4 @@ python plot_pararel_results.py
   year={2021},
   volume={abs/2104.08696}
 }
-```# knowledge-neurons
+```
