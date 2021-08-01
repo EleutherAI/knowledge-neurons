@@ -14,6 +14,7 @@ import json
 import argparse
 import torch
 from pathlib import Path 
+import os 
 
 if __name__ == "__main__":
     # parse arguments
@@ -45,13 +46,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--p",
-        type=int,
+        type=float,
         default=0.3,
         help="the threshold for the sharing percentage - we retain neurons that are shared by p% of prompts (p here is a decimal fraction, i.e between 0 and 1)",
     )
+    parser.add_argument('--seed', type=int, default=42, help="random seed")
     args = parser.parse_args()
     RESULTS_DIR = Path(args.results_dir)
-    random.seed(42)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    random.seed(args.seed)
 
     # load dataset
     # each item in pararel is the same 'fact' (head/relation/tail) expressed in different ways
