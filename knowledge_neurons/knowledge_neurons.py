@@ -14,7 +14,8 @@ import collections
 import math
 from functools import partial
 from transformers import PreTrainedTokenizerBase
-from .patch import * 
+from .patch import *
+
 
 class KnowledgeNeurons:
     def __init__(
@@ -142,7 +143,7 @@ class KnowledgeNeurons:
             return self.model.config.intermediate_size
         else:
             return self.model.config.hidden_size * 4
-    
+
     @staticmethod
     def scaled_input(activations: torch.Tensor, steps: int = 20, device: str = "cpu"):
         """
@@ -205,6 +206,7 @@ class KnowledgeNeurons:
         ground_truth: str,
         batch_size: int = 10,
         steps: int = 20,
+        attribution_method: str = "integrated_grads",
         pbar: bool = True,
     ):
         """
@@ -217,6 +219,8 @@ class KnowledgeNeurons:
             batch size
         `steps`: int
             total number of steps (per token) for the integrated gradient calculations
+        `attribution_method`: str
+            the method to use for getting the scores. Choose from 'integrated_grads' or 'max_activations'.
         """
 
         scores = []
@@ -233,6 +237,7 @@ class KnowledgeNeurons:
                 layer_idx=layer_idx,
                 batch_size=batch_size,
                 steps=steps,
+                attribution_method=attribution_method,
             )
             scores.append(layer_scores)
         return torch.stack(scores)
@@ -246,6 +251,7 @@ class KnowledgeNeurons:
         threshold: float = None,
         adaptive_threshold: float = None,
         percentile: float = None,
+        attribution_method: str = "integrated_grads",
         pbar: bool = True,
     ) -> List[List[int]]:
         """
@@ -267,11 +273,20 @@ class KnowledgeNeurons:
             Adaptively set `threshold` based on `maximum attribution score * adaptive_threshold` (in the paper, they set adaptive_threshold=0.3)
         `percentile`: float
             If not None, then we only keep neurons with integrated grads in this percentile of all integrated grads.
+        `attribution_method`: str
+            the method to use for getting the scores. Choose from 'integrated_grads' or 'max_activations'.
         """
         attribution_scores = self.get_scores(
-            prompt, ground_truth, batch_size=batch_size, steps=steps, pbar=pbar
+            prompt,
+            ground_truth,
+            batch_size=batch_size,
+            steps=steps,
+            pbar=pbar,
+            attribution_method=attribution_method,
         )
-        assert sum(e is not None for e in [threshold, adaptive_threshold, percentile]) == 1, f"Provide one and only one of threshold / adaptive_threshold / percentile"
+        assert (
+            sum(e is not None for e in [threshold, adaptive_threshold, percentile]) == 1
+        ), f"Provide one and only one of threshold / adaptive_threshold / percentile"
         if adaptive_threshold is not None:
             threshold = attribution_scores.max().item() * adaptive_threshold
         if threshold is not None:
@@ -370,6 +385,7 @@ class KnowledgeNeurons:
         batch_size: int = 10,
         steps: int = 20,
         encoded_input: Optional[int] = None,
+        attribution_method: str = "integrated_grads",
     ):
         """
         get the attribution scores for a given layer
@@ -385,8 +401,9 @@ class KnowledgeNeurons:
             total number of steps (per token) for the integrated gradient calculations
         `encoded_input`: int
             if not None, then use this encoded input instead of getting a new one
+        `attribution_method`: str
+            the method to use for getting the scores. Choose from 'integrated_grads' or 'max_activations'.
         """
-        # TODO: for gpt models, I guess I would just do this multiple times for n tokens, where n is the length of the ground truth
         assert steps % batch_size == 0
         n_batches = steps // batch_size
 
@@ -401,94 +418,127 @@ class KnowledgeNeurons:
         else:
             n_sampling_steps = 1  # TODO: we might want to use multiple mask tokens even with bert models
 
-        integrated_grads = []
+        if attribution_method == "integrated_grads":
+            integrated_grads = []
 
-        for i in range(n_sampling_steps):
-            if i > 0 and self.model_type == "gpt":
-                # retokenize new inputs
-                encoded_input, mask_idx, target_label = self._prepare_inputs(
-                    prompt, ground_truth
+            for i in range(n_sampling_steps):
+                if i > 0 and self.model_type == "gpt":
+                    # retokenize new inputs
+                    encoded_input, mask_idx, target_label = self._prepare_inputs(
+                        prompt, ground_truth
+                    )
+                (
+                    baseline_outputs,
+                    baseline_activations,
+                ) = self.get_baseline_with_activations(
+                    encoded_input, layer_idx, mask_idx
                 )
-            baseline_outputs, baseline_activations = self.get_baseline_with_activations(
-                encoded_input, layer_idx, mask_idx
-            )
-            if n_sampling_steps > 1:
-                argmax_next_token = (
-                    baseline_outputs.logits[:, mask_idx, :].argmax(dim=-1).item()
+                if n_sampling_steps > 1:
+                    argmax_next_token = (
+                        baseline_outputs.logits[:, mask_idx, :].argmax(dim=-1).item()
+                    )
+                    next_token_str = self.tokenizer.decode(argmax_next_token)
+
+                # Now we want to gradually change the intermediate activations of our layer from 0 -> their original value
+                # and calculate the integrated gradient of the masked position at each step
+                # we do this by repeating the input across the batch dimension, multiplying the first batch by 0, the second by 0.1, etc., until we reach 1
+                scaled_weights = self.scaled_input(
+                    baseline_activations, steps=steps, device=self.device
                 )
-                next_token_str = self.tokenizer.decode(argmax_next_token)
+                scaled_weights.requires_grad_(True)
 
-            # Now we want to gradually change the intermediate activations of our layer from 0 -> their original value
-            # and calculate the integrated gradient of the masked position at each step
-            # we do this by repeating the input across the batch dimension, multiplying the first batch by 0, the second by 0.1, etc., until we reach 1
-            scaled_weights = self.scaled_input(
-                baseline_activations, steps=steps, device=self.device
-            )
-            scaled_weights.requires_grad_(True)
+                integrated_grads_this_step = []  # to store the integrated gradients
 
-            integrated_grads_this_step = []  # to store the integrated gradients
+                for batch_weights in scaled_weights.chunk(n_batches):
+                    # we want to replace the intermediate activations at some layer, at the mask position, with `batch_weights`
+                    # first tile the inputs to the correct batch size
+                    inputs = {
+                        "input_ids": einops.repeat(
+                            encoded_input["input_ids"], "b d -> (r b) d", r=batch_size
+                        ),
+                        "attention_mask": einops.repeat(
+                            encoded_input["attention_mask"],
+                            "b d -> (r b) d",
+                            r=batch_size,
+                        ),
+                    }
+                    if self.model_type == "bert":
+                        inputs["token_type_ids"] = einops.repeat(
+                            encoded_input["token_type_ids"],
+                            "b d -> (r b) d",
+                            r=batch_size,
+                        )
 
-            for batch_weights in scaled_weights.chunk(n_batches):
-                # we want to replace the intermediate activations at some layer, at the mask position, with `batch_weights`
-                # first tile the inputs to the correct batch size
-                inputs = {
-                    "input_ids": einops.repeat(
-                        encoded_input["input_ids"], "b d -> (r b) d", r=batch_size
-                    ),
-                    "attention_mask": einops.repeat(
-                        encoded_input["attention_mask"], "b d -> (r b) d", r=batch_size
-                    ),
-                }
-                if self.model_type == "bert":
-                    inputs["token_type_ids"] = einops.repeat(
-                        encoded_input["token_type_ids"], "b d -> (r b) d", r=batch_size
+                    # then patch the model to replace the activations with the scaled activations
+                    patch_ff_layer(
+                        self.model,
+                        layer_idx=layer_idx,
+                        mask_idx=mask_idx,
+                        replacement_activations=batch_weights,
+                        transformer_layers_attr=self.transformer_layers_attr,
+                        ff_attrs=self.input_ff_attr,
                     )
 
-                # then patch the model to replace the activations with the scaled activations
-                patch_ff_layer(
-                    self.model,
-                    layer_idx=layer_idx,
-                    mask_idx=mask_idx,
-                    replacement_activations=batch_weights,
-                    transformer_layers_attr=self.transformer_layers_attr,
-                    ff_attrs=self.input_ff_attr,
-                )
+                    # then forward through the model to get the logits
+                    outputs = self.model(**inputs)
 
-                # then forward through the model to get the logits
-                outputs = self.model(**inputs)
+                    # then calculate the gradients for each step w/r/t the inputs
+                    probs = F.softmax(outputs.logits[:, mask_idx, :], dim=-1)
+                    if n_sampling_steps > 1:
+                        target_idx = target_label[i]
+                    else:
+                        target_idx = target_label
+                    grad = torch.autograd.grad(
+                        torch.unbind(probs[:, target_idx]), batch_weights
+                    )[0]
+                    grad = grad.sum(dim=0)
+                    integrated_grads_this_step.append(grad)
 
-                # then calculate the gradients for each step w/r/t the inputs
-                probs = F.softmax(outputs.logits[:, mask_idx, :], dim=-1)
+                    unpatch_ff_layer(
+                        self.model,
+                        layer_idx=layer_idx,
+                        transformer_layers_attr=self.transformer_layers_attr,
+                        ff_attrs=self.input_ff_attr,
+                    )
+
+                # then sum, and multiply by W-hat / m
+                integrated_grads_this_step = torch.stack(
+                    integrated_grads_this_step, dim=0
+                ).sum(dim=0)
+                integrated_grads_this_step *= baseline_activations.squeeze(0) / steps
+                integrated_grads.append(integrated_grads_this_step)
+
                 if n_sampling_steps > 1:
-                    target_idx = target_label[i]
-                else:
-                    target_idx = target_label
-                grad = torch.autograd.grad(
-                    torch.unbind(probs[:, target_idx]), batch_weights
-                )[0]
-                grad = grad.sum(dim=0)
-                integrated_grads_this_step.append(grad)
-
-                unpatch_ff_layer(
-                    self.model,
-                    layer_idx=layer_idx,
-                    transformer_layers_attr=self.transformer_layers_attr,
-                    ff_attrs=self.input_ff_attr,
+                    prompt += next_token_str
+            integrated_grads = torch.stack(integrated_grads, dim=0).sum(dim=0) / len(
+                integrated_grads
+            )
+            return integrated_grads
+        elif attribution_method == "max_activations":
+            activations = []
+            for i in range(n_sampling_steps):
+                if i > 0 and self.model_type == "gpt":
+                    # retokenize new inputs
+                    encoded_input, mask_idx, target_label = self._prepare_inputs(
+                        prompt, ground_truth
+                    )
+                (
+                    baseline_outputs,
+                    baseline_activations,
+                ) = self.get_baseline_with_activations(
+                    encoded_input, layer_idx, mask_idx
                 )
-
-            # then sum, and multiply by W-hat / m
-            integrated_grads_this_step = torch.stack(
-                integrated_grads_this_step, dim=0
-            ).sum(dim=0)
-            integrated_grads_this_step *= baseline_activations.squeeze(0) / steps
-            integrated_grads.append(integrated_grads_this_step)
-
-            if n_sampling_steps > 1:
-                prompt += next_token_str
-        integrated_grads = torch.stack(integrated_grads, dim=0).sum(dim=0) / len(
-            integrated_grads
-        )
-        return integrated_grads
+                activations.append(baseline_activations)
+                if n_sampling_steps > 1:
+                    argmax_next_token = (
+                        baseline_outputs.logits[:, mask_idx, :].argmax(dim=-1).item()
+                    )
+                    next_token_str = self.tokenizer.decode(argmax_next_token)
+                    prompt += next_token_str
+            activations = torch.stack(activations, dim=0).sum(dim=0) / len(activations)
+            return activations.squeeze(0)
+        else:
+            raise NotImplementedError
 
     def modify_activations(
         self,
