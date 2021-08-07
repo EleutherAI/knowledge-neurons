@@ -1,4 +1,8 @@
-from knowledge_neurons import KnowledgeNeurons, initialize_model_and_tokenizer, model_type
+from knowledge_neurons import (
+    KnowledgeNeurons,
+    initialize_model_and_tokenizer,
+    model_type,
+)
 import random
 
 
@@ -117,7 +121,7 @@ def test_bert_base():
         p=P,
         batch_size=BATCH_SIZE,
         steps=STEPS,
-        coarse_percentile=PERCENTILE,
+        coarse_adaptive_threshold=0.3,
     )
 
     print("\nSuppressing refined neurons: \n")
@@ -269,3 +273,10 @@ def test_bert_multilingual():
     results_dict, unpatch_fn = kn_ml.enhance_knowledge(
         TEXT, GROUND_TRUTH, random_neurons
     )
+
+
+if __name__ == "__main__":
+    test_bert_base()
+    test_bert_multilingual()
+    test_gptneo()
+    test_gpt2()
