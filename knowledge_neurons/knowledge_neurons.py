@@ -303,6 +303,7 @@ class KnowledgeNeurons:
         self,
         prompts: List[str],
         ground_truth: str,
+        negative_examples: Optional[List[str]] = None,
         p: float = 0.5,
         batch_size: int = 10,
         steps: int = 20,
@@ -324,6 +325,8 @@ class KnowledgeNeurons:
             the prompts to get the refined neurons for
         `ground_truth`: str
             the ground truth / expected output
+        `negative_examples`: list of str
+            Optionally provide a list of negative examples. Any neuron that appears in these examples will be excluded from the final results.
         `p`: float
             the threshold for the sharing percentage
         `batch_size`: int
@@ -357,8 +360,27 @@ class KnowledgeNeurons:
                     pbar=False,
                 )
             )
-        total_coarse_neurons = sum([len(i) for i in coarse_neurons])
+        if negative_examples is not None:
+            negative_neurons = []
+            for negative_example in tqdm(
+                negative_examples,
+                desc="Getting coarse neurons for negative examples",
+                disable=quiet,
+            ):
+                negative_neurons.append(
+                    self.get_coarse_neurons(
+                        negative_example,
+                        ground_truth,
+                        batch_size=batch_size,
+                        steps=steps,
+                        adaptive_threshold=coarse_adaptive_threshold,
+                        threshold=coarse_threshold,
+                        percentile=coarse_percentile,
+                        pbar=False,
+                    )
+                )
         if not quiet:
+            total_coarse_neurons = sum([len(i) for i in coarse_neurons])
             print(f"\n{total_coarse_neurons} coarse neurons found - refining")
         t = n_prompts * p
         refined_neurons = []
@@ -371,10 +393,15 @@ class KnowledgeNeurons:
             if count > t:
                 refined_neurons.append(list(neuron))
 
+        # filter out neurons that are in the negative examples
+        if negative_examples is not None:
+            for neuron in negative_neurons:
+                if neuron in refined_neurons:
+                    refined_neurons.remove(neuron)
+
         total_refined_neurons = len(refined_neurons)
         if not quiet:
             print(f"{total_refined_neurons} neurons remaining after refining")
-
         return refined_neurons
 
     def get_scores_for_layer(
