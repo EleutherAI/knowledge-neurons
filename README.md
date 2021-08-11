@@ -34,6 +34,8 @@ pip install knowledge-neurons
 
 # Usage & Examples
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EleutherAI/knowledge-neurons/blob/master/examples/knowledge_neurons.ipynb)
+
 An example using bert-base-uncased:
 
 ```python
