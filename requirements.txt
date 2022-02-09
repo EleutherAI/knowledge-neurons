@@ -1,5 +1,0 @@
-transformers
-einops
-numpy
-torch
-seaborn
